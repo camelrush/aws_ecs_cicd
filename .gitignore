@@ -1,0 +1,4 @@
+/cfn/parameter/
+/src/backend/bin/
+/src/backend/obj/
+/src/frontend/node_modules/

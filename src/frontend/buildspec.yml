@@ -1,0 +1,28 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 24
+    commands:
+      - echo "Installing dependencies for Frontend..."
+      - npm ci
+
+  build:
+    commands:
+      - echo "Building Frontend project..."
+      - npm run build
+
+  post_build:
+    commands:
+      # S3 アップロード
+      - echo "Uploading Frontend build artifacts to S3..."
+      - S3_BUCKET_NAME=${FRONTEND_BUCKET}
+      - aws s3 sync dist/ s3://$S3_BUCKET_NAME/ --delete
+      # CloudFrontキャッシュ無効化
+      - CLOUDFRONT_DISTRIBUTION_ID=${DISTRIBUTION_ID}
+      - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*" 
+      - echo "Frontend build and S3 upload completed."
+
+artifacts:
+  files: []

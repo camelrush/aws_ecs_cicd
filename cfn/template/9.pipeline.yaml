@@ -1,0 +1,593 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: cicd pipeline
+
+Parameters:
+  Name:
+    Type: String
+    Default: ecscicd
+
+Resources:
+  # IAM Roles for pipeline
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Name}-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${Name}-codepipeline-pipeline-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketAcl
+                  - s3:PutBucketLocation
+                Resource: 
+                  - !GetAtt CodePipelineArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObject
+                  - s3:GEtObjectVersion
+                Resource:
+                  Fn::Join:
+                    - "/"
+                    - - !GetAtt CodePipelineArtifactsBucket.Arn
+                      - "*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceAccount": !Sub ${AWS::AccountId}
+        - PolicyName: !Sub ${Name}-codepipeline-source-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !GetAtt CodePipelineSourceBucket.Arn
+                  - Fn::Join:
+                    - ""
+                    - - !GetAtt CodePipelineSourceBucket.Arn
+                      - "/*"
+        - PolicyName: !Sub ${Name}-codepipeline-build-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:StartBuildBatched
+                  - codebuild:BatchGetBuilds
+                  - codebuild:BatchGetBuildsBatches
+                Resource: 
+                  - !GetAtt CodeBuildBackendProject.Arn
+                  - !GetAtt CodeBuildFrontendProject.Arn
+        - PolicyName: !Sub ${Name}-codepipeline-deploy-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetDeployment
+                  - codedeploy:RegisterApplicationRevision
+                  - codedeploy:ListDeployments
+                  - codedeploy:ListDeploymentsGroups
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:GetApplicationRevision
+                Resource: 
+                  - !Sub "arn:aws:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${Name}-backend-deploy-app"
+                  - !Sub "arn:aws:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${Name}-backend-deploy-app/*"
+              - Effect: Allow
+                Action:
+                  - codedeploy:GetDeploymentConfig
+                Resource:
+                  - !Sub "arn:aws:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:CodeDeployDefault.ECSAllAtOnce"
+              - Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                Resource:
+                  Fn::Join:
+                    - ""
+                    - - !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/"
+                      - Fn::ImportValue: !Sub "${Name}-ecs-taskdef-family"
+                      - ":*"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  Fn::Join:
+                    - ""
+                    - - !Sub "arn:aws:iam::${AWS::AccountId}:role/"
+                      - Fn::ImportValue: !Sub "${Name}-ecs-exec-role-name"
+
+  CodeBuildBackendServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Name}-codebuild-backend-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
+      Policies:
+        - PolicyName: !Sub ${Name}-pipeline-build-backend-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${Name}-codebuild-backend-pj"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${Name}-codebuild-backend-pj:*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub "${CodePipelineArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodConverges
+                Resource: 
+                  - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${Name}-codebuild-backend-pj"
+
+  CodeBuildFrontendServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Name}-codebuild-frontend-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${Name}-pipeline-build-frontend-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${Name}-codebuild-frontend-pj"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${Name}-codebuild-frontend-pj:*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub "${CodePipelineArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodConverges
+                Resource: 
+                  - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${Name}-codebuild-frontend-pj"
+        - PolicyName: !Sub ${Name}-pipeline-build-frontend-resources-policy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:LitInvalidations
+                Resource:
+                  - Fn::Join:
+                    - ""
+                    - - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/"
+                      - Fn::ImportValue: !Sub "${Name}-cloudfront-distribution-id"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Fn::ImportValue: !Sub "${Name}-frontend-bucket-name"
+                  - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Fn::ImportValue: !Sub "${Name}-frontend-bucket-name"
+                      - "/*"
+
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Name}-codedeploy-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+
+  # IAM Role for EventBridge
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokePipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: "*"  
+
+  # CloudWatch Logs
+  CodeBuildBackendLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${Name}-codebuild-backend-pj
+      RetentionInDays: 7
+
+  CodeBuildFrontendLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${Name}-codebuild-frontend-pj
+      RetentionInDays: 7
+
+  # CodeBuild Projects
+  CodeBuildBackendProject:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Name: !Sub ${Name}-codebuild-backend-pj
+      Artifacts:
+        Type: S3
+        Location: !Ref CodePipelineSourceBucket
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: DISTRIBUTION_ID
+            Value:
+              Fn::ImportValue: !Sub "${Name}-cloudfront-distribution-id"
+          - Name: ECR_REPOSITORY_URI
+            Value:
+              Fn::ImportValue: !Sub "${Name}-ecr-repo-uri"
+          - Name: ECS_EXEC_ROLE_NAME
+            Value:
+              Fn::ImportValue: !Sub "${Name}-ecs-exec-role-name"
+          - Name: ECS_TASK_FAMILY
+            Value:
+              Fn::ImportValue: !Sub "${Name}-ecs-taskdef-family"
+          - Name: ECS_CONTAINER_NAME
+            Value:
+              Fn::ImportValue: !Sub "${Name}-ecs-container-name"
+      ServiceRole: !Ref CodeBuildBackendServiceRole
+      Source:
+        Type: S3
+        Location: 
+          Fn::Join:
+            - "/"
+            - - !Ref CodePipelineSourceBucket
+              - "src"
+              - "backend.zip"
+        BuildSpec: buildspec.yml
+      TimeoutInMinutes: 5
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref CodeBuildBackendLogs
+
+  CodeBuildFrontendProject:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Name: !Sub ${Name}-codebuild-frontend-pj
+      Artifacts:
+        Type: S3
+        Location: !Ref CodePipelineSourceBucket
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: DISTRIBUTION_ID
+            Value:
+              Fn::ImportValue: !Sub "${Name}-cloudfront-distribution-id"
+          - Name: FRONTEND_BUCKET
+            Value:
+              Fn::ImportValue: !Sub "${Name}-frontend-bucket-name"
+      ServiceRole: !Ref CodeBuildFrontendServiceRole
+      Source:
+        Type: S3
+        Location: 
+          Fn::Join:
+            - "/"
+            - - !Ref CodePipelineSourceBucket
+              - "src"
+              - "frontend.zip"
+        BuildSpec: buildspec.yml
+      TimeoutInMinutes: 5
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref CodeBuildFrontendLogs
+
+  # CodeDeploy Resources
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub ${Name}-backend-deploy-app
+      ComputePlatform: ECS
+  
+  # CodeDeployment Group
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: !Sub ${Name}-backend-deployment-group
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      BlueGreenDeploymentConfiguration:
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 10
+        DeploymentReadyOption:
+          ActionOnTimeout: STOP_DEPLOYMENT
+          WaitTimeInMinutes: 5
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+          - DEPLOYMENT_STOP_ON_ALARM
+          - DEPLOYMENT_STOP_ON_REQUEST
+      ECSServices:
+        - ClusterName:
+            Fn::ImportValue: !Sub "${Name}-ecs-cluster-name"
+          ServiceName: 
+            Fn::ImportValue: !Sub "${Name}-ecs-service-name"
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - TargetGroups:
+              - Name: 
+                  Fn::ImportValue: !Sub ${Name}-alb-tg-name
+              - Name: 
+                  Fn::ImportValue: !Sub ${Name}-alb-test-tg-name
+            ProdTrafficRoute:
+              ListenerArns:
+                - Fn::ImportValue: !Sub ${Name}-alb-listener-arn
+            TestTrafficRoute:
+              ListenerArns:
+                - Fn::ImportValue: !Sub ${Name}-alb-test-listener-arn
+
+  # CodePipeline(backend)
+  CodePipelineBackend:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${Name}-backend-pipeline
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactsBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              Configuration:
+                S3Bucket: !Ref CodePipelineSourceBucket
+                S3ObjectKey: src/backend.zip
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              Namespace: BuildVariables
+              Configuration:
+                ProjectName: !Ref CodeBuildBackendProject
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: 1
+              InputArtifacts:
+                - Name: BuildArtifact
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+                TaskDefinitionTemplateArtifact: BuildArtifact
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: BuildArtifact
+                AppSpecTemplatePath: appspec.yaml
+                Image1ArtifactName: BuildArtifact
+                Image1ContainerName: IMAGE1_NAME
+
+  # CodePipeline(frontend)
+  CodePipelineFrontend:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${Name}-frontend-pipeline
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactsBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              Configuration:
+                S3Bucket: !Ref CodePipelineSourceBucket
+                S3ObjectKey: src/frontend.zip
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              Namespace: BuildVariables
+              Configuration:
+                ProjectName: !Ref CodeBuildFrontendProject
+              OutputArtifacts:
+                - Name: BuildArtifact
+
+  # S3 Buckets
+  CodePipelineArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Name}-pipeline-artifacts-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CodePipelineSourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Name}-source-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # EventBridge Rule(Frontend)
+  StartFrontendPipelineEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${Name}-start-frontend-pipeline-rule"
+      Description: Trigger CodePipeline when S3 file is uploaded or updated
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail-type:
+          - "Object Created"
+        detail:
+          object:
+            key:
+              - prefix: src/
+              - suffix: frontend.zip
+      Targets:
+        - Arn: 
+            Fn::Join:
+              - ":"
+              - - "arn:aws:codepipeline"
+                - !Sub ${AWS::Region}
+                - !Sub ${AWS::AccountId}
+                - !Ref CodePipelineFrontend
+          Id: "TargetPipeline"
+          RoleArn: !GetAtt EventBridgeRole.Arn
+
+  # EventBridge Rule(Backend)
+  StartBackendPipelineEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${Name}-start-backend-pipeline-rule"
+      Description: Trigger CodePipeline when S3 file is uploaded or updated
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail-type:
+          - "Object Created"
+        detail:
+          object:
+            key:
+              - prefix: src/
+              - suffix: backend.zip
+      Targets:
+        - Arn: 
+            Fn::Join:
+              - ":"
+              - - "arn:aws:codepipeline"
+                - !Sub ${AWS::Region}
+                - !Sub ${AWS::AccountId}
+                - !Ref CodePipelineBackend
+          Id: "TargetPipeline"
+          RoleArn: !GetAtt EventBridgeRole.Arn
+
+Outputs:
+  CodePipelineServiceRoleArn:
+    Description: CodePipelineServiceRole ARN
+    Value: !GetAtt CodePipelineServiceRole.Arn
+    Export:
+      Name: !Sub "${Name}-CodePipelineServiceRoleArn"

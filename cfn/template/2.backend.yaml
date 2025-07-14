@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ecs fargate with alb for backend
+
+Parameters:
+  Name:
+    Type: String
+    Default: ecscicd
+  ApiContainerPort:
+    Type: String
+    Default: 80
+
+Resources:
+  # ECS Cluster
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${Name}-cluster
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-cluster
+  
+  # IAM Roles for ECS
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Name}-ecs-exec-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: !Sub ${Name}-ecs-exec-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-ecs-exec-role
+
+  # CloudWatchLogs
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${Name}-api
+      RetentionInDays: 90
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-api-logs
+  
+  # ALB
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Name}-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - Fn::ImportValue: !Sub ${Name}-public-subnet-1-id
+        - Fn::ImportValue: !Sub ${Name}-public-subnet-2-id
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-alb
+
+  # ALB Target Group
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Name}-alb-tg
+      TargetType: ip
+      Protocol: HTTP
+      Port: !Ref ApiContainerPort
+      VpcId:
+        Fn::ImportValue: !Sub ${Name}-vpc-id
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 10
+      HealthCheckIntervalSeconds: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-alb-tg
+
+  # ALB Listener
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  # ALB Target Group(Test)
+  AlbTestTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Name}-alb-test-tg
+      VpcId: 
+        Fn::ImportValue: !Sub ${Name}-vpc-id
+      Port: !Ref ApiContainerPort
+      Protocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetType: ip
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-alb-test-tg
+
+  # ALB Listener(Test)
+  AlbTestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 8080
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTestTargetGroup
+
+  # ECS Task Definition
+  EcsTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${Name}-taskdef
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      RequiresCompatibilities:
+        - FARGATE
+      Memory: 512
+      Cpu: 256
+      NetworkMode: awsvpc
+      ContainerDefinitions:
+        - Name: !Sub ${Name}-api
+          Image: 
+            Fn::Join:
+              - ":"
+              - - Fn::ImportValue:
+                    !Sub ${Name}-ecr-repo-uri
+                - "latest"
+          PortMappings:
+            - ContainerPort: !Ref ApiContainerPort
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: ASPNETCORE_ENVIRONMENT
+              Value: Production
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-taskdef
+
+  # ECS Service
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - AlbListener
+    Properties:
+      ServiceName: !Sub ${Name}-api-service
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 0
+      TaskDefinition: !Ref EcsTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub ${Name}-private-subnet-1-id
+            - Fn::ImportValue: !Sub ${Name}-private-subnet-2-id
+          SecurityGroups:
+            - !Ref EcsSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Sub ${Name}-api
+          ContainerPort: !Ref ApiContainerPort
+          TargetGroupArn: !Ref AlbTargetGroup
+      DeploymentController:
+        Type: CODE_DEPLOY
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-service
+
+  # Security Group
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Name}-alb-sg
+      GroupDescription: Allow SSH, HTTP, HTTPs, HTTP(Test) from Any IP.
+      VpcId: 
+        Fn::ImportValue: !Sub ${Name}-vpc-id
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 8080
+        ToPort: 8080
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${Name}-alb-sg
+
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Name}-ecs-sg
+      GroupDescription: Allow HTTP from ALB.
+      VpcId: 
+        Fn::ImportValue: !Sub ${Name}-vpc-id
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Sub ${Name}-ecs-sg
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt Alb.DNSName
+    Export:
+      Name: !Sub ${Name}-alb-dns-name
+  AlbTargetName:
+    Value: !Sub ${Name}-alb-tg
+    Export:
+      Name: !Sub ${Name}-alb-tg-name
+  AlbTestTargetName:
+    Value: !Sub ${Name}-alb-test-tg
+    Export:
+      Name: !Sub ${Name}-alb-test-tg-name
+  AlbListener:
+    Value: !Ref AlbListener
+    Export:
+      Name: !Sub ${Name}-alb-listener-arn
+  AlbTestListener:
+    Value: !Ref AlbTestListener
+    Export:
+      Name: !Sub ${Name}-alb-test-listener-arn
+  EcsClusterName:
+    Value: !Ref EcsCluster
+    Export:
+      Name: !Sub ${Name}-ecs-cluster-name
+  EcsServiceName:
+    Value: !Sub ${Name}-api-service
+    Export:
+      Name: !Sub ${Name}-ecs-service-name
+  EcsTaskDefinitionFamily:
+    Value: !Sub ${Name}-taskdef
+    Export:
+      Name: !Sub ${Name}-ecs-taskdef-family
+  EcsExecRoleName:
+    Value: !Ref EcsTaskExecutionRole
+    Export:
+      Name: !Sub ${Name}-ecs-exec-role-name
+  EcsContainerName:
+    Value: !Sub ${Name}-api
+    Export:
+      Name: !Sub ${Name}-ecs-container-name

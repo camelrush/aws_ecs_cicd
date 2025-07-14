@@ -1,0 +1,72 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      # Docker Loginのための認証情報を取得
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - AWS_REGION=ap-northeast-1
+      - aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY_URI}
+  build:
+    commands:
+      - echo Build Docker image started on `date`
+      - docker build -t api-image:latest .
+      - docker tag api-image:latest ${ECR_REPOSITORY_URI}:latest
+      - IMAGE_TAG=$(echo date '+%Y%m%d%H%M%S' | sha256sum | cut -c1-7)
+      - docker tag api-image:latest ${ECR_REPOSITORY_URI}:${IMAGE_TAG}
+  post_build:
+    commands:
+      # ECRにイメージをプッシュ
+      - echo Push Docker image to ECR started on `date`
+      - docker push ${ECR_REPOSITORY_URI}:latest
+      - docker push ${ECR_REPOSITORY_URI}:${IMAGE_TAG}
+      - echo Build and Push completed on `date`
+      - printf '{"Version":"1.0","ImageURI":"%s"}' ${ECR_REPOSITORY_URI}:${IMAGE_TAG} > imageDetail.json
+      # taskdef.jsonを生成
+      - |
+        cat <<EOF > taskdef.json
+        {
+          "family": "${ECS_TASK_FAMILY}",
+          "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ECS_EXEC_ROLE_NAME}",
+          "containerDefinitions": [
+            {
+              "name": "${ECS_CONTAINER_NAME}",
+              "image": "<IMAGE1_NAME>",
+              "portMappings": [
+                {
+                  "containerPort": 80,
+                  "hostPort": 80,
+                  "protocol": "tcp"
+                }
+              ],
+              "essential": true
+            }
+          ],
+          "requiresCompatibilities": [
+            "FARGATE"
+          ],
+          "networkMode": "awsvpc",
+          "cpu": "256",
+          "memory": "512"
+        }
+        EOF
+      - echo Task definition file created on `date`
+      # appspec.yamlを生成
+      - |
+        cat <<EOF > appspec.yaml
+        version: 0.0
+        Resources:
+        - TargetService:
+            Type: AWS::ECS::Service
+            Properties:
+              TaskDefinition: <TASK_DEFINITION>
+              LoadBalancerInfo:
+                ContainerName: "${ECS_CONTAINER_NAME}"
+                ContainerPort: 80
+        EOF
+artifacts:
+  files: 
+    - imageDetail.json
+    - taskdef.json
+    - appspec.yaml
+

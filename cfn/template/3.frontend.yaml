@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket for frontend
+
+Parameters:
+  Name:
+    Type: String
+    Default: ecscicd
+
+Resources:
+  # S3 bucket for frontend
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Name}-frontend-bucket
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      Tags:
+      - Key: Name
+        Value: !Sub ${Name}-frontend-bucket
+
+Outputs:
+  BucketName:
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub ${Name}-frontend-bucket-name
+  BucketDnsName:
+    Value: !GetAtt FrontendBucket.RegionalDomainName
+    Export:
+      Name: !Sub ${Name}-frontend-bucket-dnsname
