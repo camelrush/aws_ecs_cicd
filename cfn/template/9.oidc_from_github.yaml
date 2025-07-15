@@ -25,14 +25,13 @@ Resources:
     DependsOn:
       - OIDCFromGitHub
     Properties:
-      RoleName: !Sub ${Name}-role
+      RoleName: !Sub ${Name}-github-oidc-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Federated:
-                - !GetAtt OIDCFromGitHub.Arn
+              Federated: !GetAtt OIDCFromGitHub.Arn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -48,7 +47,7 @@ Resources:
   CICDRolePolicy:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: !Sub ${Name}-policy
+      PolicyName: !Sub ${Name}-github-oicd-policy
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
