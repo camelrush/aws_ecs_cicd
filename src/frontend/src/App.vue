@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <label class="title">below from api : </label>
+    <label class="title">below from api .net9 : </label>
     <br>
     <label class="message">{{ message }}</label>
   </div>
