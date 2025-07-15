@@ -136,7 +136,7 @@ Resources:
 
   # ECS Task Definition
   EcsTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
+    Type: AWS::ECS::TaskDefinition  
     Properties:
       Family: !Sub ${Name}-taskdef
       ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
@@ -203,7 +203,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${Name}-alb-sg
-      GroupDescription: Allow SSH, HTTP, HTTPs, HTTP(Test) from Any IP.
+      GroupDescription: Allow SSH, HTTP, HTTPs from Any IP.
       VpcId: 
         Fn::ImportValue: !Sub ${Name}-vpc-id
       SecurityGroupIngress:

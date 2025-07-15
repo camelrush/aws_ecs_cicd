@@ -587,7 +587,10 @@ Resources:
 
 Outputs:
   CodePipelineServiceRoleArn:
-    Description: CodePipelineServiceRole ARN
     Value: !GetAtt CodePipelineServiceRole.Arn
     Export:
       Name: !Sub "${Name}-CodePipelineServiceRoleArn"
+  SourceBucketArn:
+    Value: !GetAtt CodePipelineSourceBucket.Arn
+    Export:
+      Name: !Sub "${Name}-source-bucket-arn"

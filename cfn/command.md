@@ -32,11 +32,18 @@ aws cloudformation create-stack --stack-name ecscicd-cdn \
     --region ap-northeast-1 \
     --parameters file://parameter/parameter_cdn.json
 
-# 9.pipeline
+# 8.pipeline
 aws cloudformation create-stack --stack-name ecscicd-pipeline \
-    --template-body file://template/9.pipeline.yaml \
+    --template-body file://template/8.pipeline.yaml \
     --capabilities CAPABILITY_NAMED_IAM \
     --region ap-northeast-1
+
+# 9.oidc_from_github
+aws cloudformation create-stack --stack-name ecscicd-oidc \
+    --template-body file://template/9.oidc_from_github.yaml \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region ap-northeast-1 \
+    --parameters file://parameter/parameter_oidc.json
 
 # -----------------------
 #  Update stack
@@ -72,9 +79,15 @@ aws cloudformation update-stack --stack-name ecscicd-cdn \
     --region ap-northeast-1 \
     --parameters file://parameter/parameter_cdn.json
 
-# 9.pipeline
+# 8.pipeline
 aws cloudformation update-stack --stack-name ecscicd-pipeline \
-    --template-body file://template/9.pipeline.yaml \
+    --template-body file://template/8.pipeline.yaml \
     --capabilities CAPABILITY_NAMED_IAM \
     --region ap-northeast-1
 
+# 9.oidc_from_github
+aws cloudformation update-stack --stack-name ecscicd-oidc \
+    --template-body file://template/9.oidc_from_github.yaml \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region ap-northeast-1 \
+    --parameters file://parameter/parameter_oidc.json

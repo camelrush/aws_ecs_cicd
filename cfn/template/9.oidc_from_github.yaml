@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: cicd pipeline
+
+Parameters:
+  Name:
+    Type: String
+    Default: ecscicd
+  GitRepository:
+    Type: String
+
+Resources:
+  # OIDC Provider
+  OIDCFromGitHub:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: 'https://token.actions.githubusercontent.com'
+      ClientIdList:
+        - 'sts.amazonaws.com'
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  # IAM Role for GitHub Actions
+  CICDRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+      - OIDCFromGitHub
+    Properties:
+      RoleName: !Sub ${Name}-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: 
+                  Fn::Join:
+                    - ""
+                    - - "repo."
+                      - !Sub ${GitRepository}
+                      - ":*"
+
+  CICDRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${Name}-policy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - Fn::Join:
+                - ""
+                - - Fn::ImportValue: !Sub ${Name}-source-bucket-arn
+                  - ""
+              - Fn::Join:
+                - ""
+                - - Fn::ImportValue: !Sub ${Name}-source-bucket-arn
+                  - "/*"
+      Roles:
+        - !Ref CICDRole

@@ -1,0 +1,39 @@
+name: "Put source files to S3 on Push Event"
+
+on:
+  push:
+    branches: 
+      - main
+    paths:
+      - 'src/frontend/**'
+
+env:
+  AWS_REGION: ap-northeast-1
+  CF_ENVIRONMENT: Dev
+  CF_SOURCEIP: 0.0.0.0
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy for CloudFormation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source.
+        uses: actions/checkout@v4
+      - name: Configure AWS Credential
+        uses: aws-actions/configure-aws-credentials@v4
+        with: 
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+      - name: Create frontend.zip (without top-level directory)
+        run: |
+          cd src/frontend
+          zip -r frontend.zip .
+      - name: Upload to S3
+        env: 
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_BUCKET_PATH }}
+        run: |
+          aws s3 cp frontend.zip s3://$S3_UPLOAD_BUCKET
