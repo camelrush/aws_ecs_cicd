@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   deploy:
-    name: deploy for CloudFormation
+    name: Put source zip file for S3.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source.

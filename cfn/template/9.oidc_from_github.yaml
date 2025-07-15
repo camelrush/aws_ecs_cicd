@@ -32,7 +32,7 @@ Resources:
           - Effect: Allow
             Principal:
               Federated:
-                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+                - !GetAtt OIDCFromGitHub.Arn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
