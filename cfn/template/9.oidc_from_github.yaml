@@ -40,7 +40,7 @@ Resources:
                 token.actions.githubusercontent.com:sub: 
                   Fn::Join:
                     - ""
-                    - - "repo."
+                    - - "repo:"
                       - !Sub ${GitRepository}
                       - ":*"
 

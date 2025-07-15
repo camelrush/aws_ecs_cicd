@@ -34,4 +34,4 @@ jobs:
         env: 
           S3_UPLOAD_BUCKET: ${{ secrets.S3_BUCKET_PATH }}
         run: |
-          aws s3 cp backend.zip s3://$S3_UPLOAD_BUCKET
+          aws s3 cp src/backend/backend.zip s3://$S3_UPLOAD_BUCKET
