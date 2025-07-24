@@ -36,7 +36,7 @@ app.MapGet("/", () =>
 
 app.MapGet("/api/message", () =>
 {
-    return "message from webapi by .net9!(new message)";
+    return "message from webapi by .net9!(new message!)";
 });
 
 // app.MapGet("/weatherforecast", () =>
