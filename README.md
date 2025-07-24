@@ -11,14 +11,25 @@
 
 ## アーキテクチャ
 
+### インフラ
+
 このプロジェクトでは、以下のAWSリソースを使用してCI/CDパイプラインを構築します：
 
-1. **ECR** - Dockerイメージレジストリ
-2. **Network** - VPC、サブネット、セキュリティグループ
-3. **Backend** - ECS タスクとサービス（Backend API）
-4. **Frontend** - ECS タスクとサービス（Frontend）
-5. **CDN** - CloudFront配信
-6. **Pipeline** - CodePipelineによるCI/CD自動化
+- 0. **ECR** - Dockerイメージレジストリ
+- 1. **Network** - VPC、サブネット、セキュリティグループ
+- 2. **Backend** - ECS タスクとサービス（Backend API）
+- 3. **Frontend** - ECS タスクとサービス（Frontend）
+- 4. **CDN** - CloudFront配信
+- 8. **Pipeline** - CodePipelineによるCI/CD自動化
+- 9. **OIDC** - GitHub Actionsとの連携（OIDCプロバイダ）
+
+<img src="./assets/img/aws_architecture.png" width=60% />
+
+### アプリケーション
+
+アプリケーションは、以下の構造で実装されています。
+- backend ... WebAPI by .net 9
+- frontend ... Static web site by Vue.js
 
 ## 前提条件
 
@@ -104,16 +115,17 @@ npm run dev
 ```
 aws_ecs_cicd/
 ├── cfn/
-│   ├── command.md              # CloudFormationコマンド集
+│   ├── command.md                     # CloudFormationコマンド集
 │   ├── parameter/
-│   │   └── parameter_cdn.json  # CDNパラメータ
+│   │   └── parameter_cdn.json         # CDNパラメータ
 │   └── template/
-│       ├── 0.ecr.yaml         # ECRテンプレート
-│       ├── 1.network.yaml     # ネットワークテンプレート
-│       ├── 2.backend.yaml     # バックエンドテンプレート
-│       ├── 3.frontend.yaml    # フロントエンドテンプレート
-│       ├── 4.cdn.yaml         # CDNテンプレート
-│       └── 9.pipeline.yaml    # パイプラインテンプレート
+│       ├── 0.ecr.yaml                 # ECRテンプレート
+│       ├── 1.network.yaml             # ネットワークテンプレート
+│       ├── 2.backend.yaml             # バックエンドテンプレート
+│       ├── 3.frontend.yaml            # フロントエンドテンプレート
+│       ├── 4.cdn.yaml                 # CDNテンプレート
+│       ├── 8.pipeline.yaml            # パイプラインテンプレート
+│       └── 9.oidc_from_github.yaml    # OIDCプロバイダテンプレート
 └── src/
     ├── backend/
     │   ├── Dockerfile

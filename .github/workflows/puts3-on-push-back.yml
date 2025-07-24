@@ -28,6 +28,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
       - name: Create backend.zip (without top-level directory)
         run: |
+          cp src/common/buildspec.yaml src/backend/buildspec_common.yaml
           cd src/backend
           zip -r backend.zip .
       - name: Upload to S3
